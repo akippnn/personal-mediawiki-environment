@@ -49,11 +49,26 @@ def start_docker():
     subprocess.run(['docker-compose', 'up', '-d'], cwd=PORTABLE_DIR, check=True)
     print("Docker services started.")
 
-def run_setup():
-    """Run the setup via manager.py."""
-    print("Running Portable Wiki Setup...")
+def run_sync():
+    """Run sync via manager.py and save state."""
+    from tools.config import ConfigManager
+    from tools.wiki_manager import WikiManager
+    
+    config = ConfigManager(ROOT_DIR)
+    manager = WikiManager(config)
+    
+    active = config.get_active_wiki()
+    if not active:
+        print("No active wiki. Run 'clone' first.")
+        return
+    
+    print(f"Syncing '{active}'...")
     subprocess.run([sys.executable, 'manager.py', 'install'], cwd=PORTABLE_DIR, check=True)
     subprocess.run([sys.executable, 'manager.py', 'import'], cwd=PORTABLE_DIR, check=True)
+    
+    # Save sync state
+    manager.save_sync_state(active)
+    print(f"✓ Synced '{active}'")
 
 def cmd_clone(args):
     """Clone a remote wiki."""
@@ -178,9 +193,54 @@ def cmd_start(args):
     start_docker()
     print("Portable Wiki started at http://localhost:8080")
 
-def cmd_setup(args):
-    """Run the portable wiki setup script."""
-    run_setup()
+def cmd_sync(args):
+    """Sync data to portable wiki."""
+    run_sync()
+
+def cmd_status(args):
+    """Show status of wiki environment."""
+    from tools.config import ConfigManager
+    from tools.wiki_manager import WikiManager
+    
+    config = ConfigManager(ROOT_DIR)
+    manager = WikiManager(config)
+    status = manager.get_status()
+    
+    print("\n" + "=" * 50)
+    print("Wiki Environment Status")
+    print("=" * 50)
+    
+    # Active wiki
+    active = status['active_wiki'] or 'none'
+    print(f"Active Wiki:     {active}")
+    
+    # Container status
+    container = "running" if status['container_running'] else "stopped"
+    if status['synced_wiki'] and status['container_running']:
+        container += f" (synced: {status['synced_wiki']})"
+    print(f"Container:       {container}")
+    
+    # Sync status
+    if status['synced_at']:
+        print(f"Last Sync:       {status['synced_at']}")
+    else:
+        print(f"Last Sync:       never")
+    
+    # Warnings
+    if status['warnings']:
+        print("\n⚠️  Warnings:")
+        for warning in status['warnings']:
+            print(f"   • {warning}")
+    
+    # Recommendations
+    if status['needs_sync']:
+        print("\n→ Run 'sync' to update the portable wiki")
+    elif not status['container_running']:
+        print("\n→ Run 'start' to start the wiki")
+    else:
+        print("\n✓ Everything looks good")
+    
+    print("=" * 50)
 
 def cmd_cleanup(args):
     """Stop containers and optionally remove volumes and data."""
@@ -241,9 +301,13 @@ def main():
     p = subparsers.add_parser('start', help='Start portable wiki (Docker)')
     p.set_defaults(func=cmd_start)
     
-    # Setup
-    p = subparsers.add_parser('setup', help='Run portable wiki setup')
-    p.set_defaults(func=cmd_setup)
+    # Sync (was: setup)
+    p = subparsers.add_parser('sync', help='Sync data to portable wiki')
+    p.set_defaults(func=cmd_sync)
+    
+    # Status
+    p = subparsers.add_parser('status', help='Show wiki environment status')
+    p.set_defaults(func=cmd_status)
     
     # Cleanup
     p = subparsers.add_parser('cleanup', help='Stop containers and clean up')

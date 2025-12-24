@@ -16,3 +16,4 @@ portable_wiki/LocalSettings.php
 wikis/
 wikis.yaml
 .DS_Store
+portable_wiki/.state
