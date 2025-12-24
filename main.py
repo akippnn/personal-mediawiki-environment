@@ -3,12 +3,14 @@
 Portable MediaWiki Editor - Unified CLI Orchestrator
 
 Commands:
-    clone     Clone a remote wiki (export + setup local)
+    clone     Clone a remote wiki
     push      Push local changes to remote
+    list      Show all cloned wikis
+    swap      Switch active wiki
     export    Run standalone exporter
-    start     Start portable wiki (Docker)
+    start     Start portable wiki
     setup     Run setup script
-    cleanup   Stop containers, remove volumes
+    cleanup   Stop and clean up
 """
 import argparse
 import subprocess
@@ -20,9 +22,12 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 EXPORTER_DIR = os.path.join(ROOT_DIR, 'exporter')
 PORTABLE_DIR = os.path.join(ROOT_DIR, 'portable_wiki')
 
-# Add paths for imports
 sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, EXPORTER_DIR)
+
+def slugify(name: str) -> str:
+    """Create a filesystem-safe name."""
+    return name.lower().replace(' ', '_').replace('/', '_').replace(':', '_')
 
 def run_exporter(api_url: str, output_dir: str, mode: str = 'all'):
     """Run the exporter subprocess."""
@@ -45,9 +50,10 @@ def start_docker():
     print("Docker services started.")
 
 def run_setup():
-    """Run the setup script."""
+    """Run the setup via manager.py."""
     print("Running Portable Wiki Setup...")
-    subprocess.run(['./setup.sh'], cwd=PORTABLE_DIR, check=True)
+    subprocess.run([sys.executable, 'manager.py', 'install'], cwd=PORTABLE_DIR, check=True)
+    subprocess.run([sys.executable, 'manager.py', 'import'], cwd=PORTABLE_DIR, check=True)
 
 def cmd_clone(args):
     """Clone a remote wiki."""
@@ -56,20 +62,40 @@ def cmd_clone(args):
     config = ConfigManager(ROOT_DIR)
     
     url = args.url or input("Remote Wiki API URL: ").strip()
-    user = args.user or input("Bot Username: ").strip()
-    pw = args.password or getpass("Bot Password: ")
+    user = args.user or input("Bot Username (optional): ").strip()
+    pw = getpass("Bot Password (optional): ") if user else ""
     
-    config.set_remote(url, user, pw)
+    # Generate name from URL if not provided
+    if args.name:
+        name = slugify(args.name)
+    else:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        name = slugify(parsed.netloc.split('.')[0])
+    
+    print(f"\nCloning wiki as '{name}'...")
+    
+    # Create wiki entry
+    wiki_path = config.add_wiki(name, url, user, pw)
+    data_dir = os.path.join(wiki_path, 'data')
     
     print("\n--- Phase 1: Exporting Remote Wiki ---")
-    data_dir = os.path.join(PORTABLE_DIR, 'data')
     run_exporter(url, data_dir, mode='all')
+    
+    # Symlink data to portable_wiki
+    portable_data = os.path.join(PORTABLE_DIR, 'data')
+    if os.path.islink(portable_data):
+        os.unlink(portable_data)
+    elif os.path.exists(portable_data):
+        import shutil
+        shutil.rmtree(portable_data)
+    os.symlink(data_dir, portable_data)
     
     print("\n--- Phase 2: Starting Portable Wiki ---")
     start_docker()
     run_setup()
     
-    print("\n✓ Clone Complete! Wiki running at http://localhost:8080")
+    print(f"\n✓ Clone Complete! Wiki '{name}' running at http://localhost:8080")
 
 def cmd_push(args):
     """Push local changes to remote wiki."""
@@ -78,17 +104,69 @@ def cmd_push(args):
     from tools.syncer import Syncer
     
     config = ConfigManager(ROOT_DIR)
+    wiki = config.get_active_wiki_config()
     
-    if not config.is_configured():
-        print("Not configured. Run 'clone' first.")
+    if not wiki:
+        print("No active wiki. Run 'clone' first.")
         return
     
-    remote_cfg = config.get_remote()
+    print(f"Pushing changes from '{config.get_active_wiki()}'...")
+    
     local_api = SyncApi('http://localhost:8080/api.php')
-    remote_api = SyncApi(remote_cfg['url'], remote_cfg['username'], remote_cfg['password'])
+    remote_api = SyncApi(wiki['url'], wiki.get('username'), wiki.get('password'))
     
     syncer = Syncer(local_api, remote_api)
     syncer.push()
+
+def cmd_list(args):
+    """List all cloned wikis."""
+    from tools.config import ConfigManager
+    from tools.wiki_manager import WikiManager
+    
+    config = ConfigManager(ROOT_DIR)
+    manager = WikiManager(config)
+    
+    wikis = manager.list()
+    
+    if not wikis:
+        print("No wikis cloned yet. Use 'clone' to add one.")
+        return
+    
+    print("\nCloned Wikis:")
+    print("-" * 60)
+    for wiki in wikis:
+        status = "→ " if wiki['active'] else "  "
+        data = "✓" if wiki['has_data'] else "✗"
+        print(f"{status}{wiki['name']:20} {wiki['url']:30} [{data}]")
+    print("-" * 60)
+    print(f"Active: {config.get_active_wiki() or 'none'}")
+
+def cmd_swap(args):
+    """Swap to a different wiki."""
+    from tools.config import ConfigManager
+    from tools.wiki_manager import WikiManager
+    import shutil
+    
+    config = ConfigManager(ROOT_DIR)
+    manager = WikiManager(config)
+    
+    if not manager.swap(args.name):
+        print(f"Wiki '{args.name}' not found")
+        return
+    
+    # Update symlink
+    wiki = config.get_active_wiki_config()
+    data_dir = os.path.join(wiki['path'], 'data')
+    portable_data = os.path.join(PORTABLE_DIR, 'data')
+    
+    if os.path.islink(portable_data):
+        os.unlink(portable_data)
+    elif os.path.exists(portable_data):
+        shutil.rmtree(portable_data)
+    os.symlink(data_dir, portable_data)
+    
+    print(f"✓ Switched to '{args.name}'")
+    print("  Run 'start' to launch or 'setup' to reimport data")
 
 def cmd_export(args):
     """Run the standalone exporter."""
@@ -114,11 +192,15 @@ def cmd_cleanup(args):
         subprocess.run(['docker-compose', 'down', '-v'], cwd=PORTABLE_DIR, check=True)
     
     if args.data:
-        import shutil
-        data_dir = os.path.join(PORTABLE_DIR, 'data')
-        if os.path.exists(data_dir):
-            print(f"Removing {data_dir}...")
-            shutil.rmtree(data_dir)
+        from tools.config import ConfigManager
+        config = ConfigManager(ROOT_DIR)
+        wiki = config.get_active_wiki_config()
+        if wiki:
+            import shutil
+            data_path = os.path.join(wiki['path'], 'data')
+            if os.path.exists(data_path):
+                print(f"Removing {data_path}...")
+                shutil.rmtree(data_path)
     
     print("✓ Cleanup complete.")
 
@@ -132,6 +214,7 @@ def main():
     # Clone
     p = subparsers.add_parser('clone', help='Clone a remote wiki')
     p.add_argument('--url', help='Remote API URL')
+    p.add_argument('--name', '-n', help='Name for this wiki instance')
     p.add_argument('--user', help='Bot username')
     p.add_argument('--password', help='Bot password')
     p.set_defaults(func=cmd_clone)
@@ -140,7 +223,16 @@ def main():
     p = subparsers.add_parser('push', help='Push local changes to remote')
     p.set_defaults(func=cmd_push)
     
-    # Export (pass-through)
+    # List
+    p = subparsers.add_parser('list', help='List all cloned wikis')
+    p.set_defaults(func=cmd_list)
+    
+    # Swap
+    p = subparsers.add_parser('swap', help='Switch to a different wiki')
+    p.add_argument('name', help='Wiki name to switch to')
+    p.set_defaults(func=cmd_swap)
+    
+    # Export
     p = subparsers.add_parser('export', help='Run standalone exporter')
     p.add_argument('exporter_args', nargs='*', help='Arguments for exporter')
     p.set_defaults(func=cmd_export)
