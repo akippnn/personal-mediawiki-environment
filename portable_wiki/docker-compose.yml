@@ -3,9 +3,8 @@ services:
     image: alpine
     volumes:
       - ./mediawiki-entrypoint.sh:/scripts/setup.sh:ro
-      - ./db-entrypoint.sh:/scripts/db-setup.sh:ro
       - ./data:/data:ro
-      - mediawiki_extensions:/extensions
+      - ./extensions:/extensions:ro
     command: [ "/bin/sh", "/scripts/setup.sh" ]
     depends_on:
       database:
@@ -18,8 +17,8 @@ services:
       - 8080:80
     volumes:
       - ./data:/var/www/data:ro
+      - ./extensions:/var/www/html/extensions:ro
       - mediawiki_data:/var/www/html/images
-      - mediawiki_extensions:/var/www/html/extensions
     environment:
       - MW_DB_HOST=database
       - MW_DB_USER=wikiuser
@@ -50,4 +49,3 @@ services:
 volumes:
   db_data:
   mediawiki_data:
-  mediawiki_extensions:

@@ -73,16 +73,19 @@ def run_sync():
     print(f"✓ Synced '{active}'")
 
 def cmd_clone(args):
-    """Clone a remote wiki."""
+    """Clone a remote wiki with extension resolution."""
+    import threading
     from tools.config import ConfigManager
+    from tools.extension_resolver import ExtensionResolver
+    from tools.extension_installer import install_extensions
     
     config = ConfigManager(ROOT_DIR)
     
+    # --- Phase 0: Gather user input FIRST (good UX) ---
     url = args.url or input("Remote Wiki API URL: ").strip()
     user = args.user or input("Bot Username (optional): ").strip()
     pw = getpass("Bot Password (optional): ") if user else ""
     
-    # Generate name from URL if not provided
     if args.name:
         name = slugify(args.name)
     else:
@@ -95,9 +98,60 @@ def cmd_clone(args):
     # Create wiki entry
     wiki_path = config.add_wiki(name, url, user, pw)
     data_dir = os.path.join(wiki_path, 'data')
+    extensions_dir = os.path.join(wiki_path, 'extensions')
     
+    # --- Phase 1: Export in background ---
     print("\n--- Phase 1: Exporting Remote Wiki ---")
-    run_exporter(url, data_dir, mode='all')
+    export_done = threading.Event()
+    export_error = [None]
+    
+    def export_thread():
+        try:
+            run_exporter(url, data_dir, mode='all')
+        except Exception as e:
+            export_error[0] = e
+        finally:
+            export_done.set()
+    
+    thread = threading.Thread(target=export_thread)
+    thread.start()
+    
+    # Wait for export to complete
+    export_done.wait()
+    thread.join()
+    
+    if export_error[0]:
+        print(f"Export failed: {export_error[0]}")
+        return
+    
+    # --- Phase 2: Resolve Extensions ---
+    print("\n--- Phase 2: Resolving Extensions ---")
+    resolver = ExtensionResolver(wiki_path)
+    exported_exts = resolver.load_exported_extensions()
+    
+    if exported_exts:
+        print(f"Found {len(exported_exts)} extensions to check...")
+        ext_info = resolver.resolve_all(exported_exts, callback=print)
+        
+        # Prompt for archived extensions
+        archived = resolver.get_unresolved_archived(ext_info)
+        for ext in archived:
+            resolver.prompt_archived(ext)
+        
+        # Save lock
+        resolver.lock.extensions = ext_info
+        resolver.save()
+        
+        # Install extensions
+        print("\n--- Phase 3: Installing Extensions ---")
+        to_install = resolver.get_extensions_to_install()
+        if to_install:
+            install_extensions(to_install, extensions_dir, callback=print)
+    else:
+        print("No extensions found in export.")
+    
+    # --- Phase 4: Setup Portable Wiki ---
+    print("\n--- Phase 4: Starting Portable Wiki ---")
     
     # Symlink data to portable_wiki
     portable_data = os.path.join(PORTABLE_DIR, 'data')
@@ -108,9 +162,18 @@ def cmd_clone(args):
         shutil.rmtree(portable_data)
     os.symlink(data_dir, portable_data)
     
-    print("\n--- Phase 2: Starting Portable Wiki ---")
+    # Symlink extensions
+    portable_ext = os.path.join(PORTABLE_DIR, 'extensions')
+    if os.path.islink(portable_ext):
+        os.unlink(portable_ext)
+    elif os.path.exists(portable_ext):
+        import shutil
+        shutil.rmtree(portable_ext)
+    if os.path.exists(extensions_dir):
+        os.symlink(extensions_dir, portable_ext)
+    
     start_docker()
-    run_setup()
+    run_sync()
     
     print(f"\n✓ Clone Complete! Wiki '{name}' running at http://localhost:8080")
 
@@ -279,6 +342,7 @@ def cmd_status(args):
     """Show status of wiki environment."""
     from tools.config import ConfigManager
     from tools.wiki_manager import WikiManager
+    from tools.extension_resolver import ExtensionLock
     
     config = ConfigManager(ROOT_DIR)
     manager = WikiManager(config)
@@ -303,6 +367,18 @@ def cmd_status(args):
         print(f"Last Sync:       {status['synced_at']}")
     else:
         print(f"Last Sync:       never")
+    
+    # Extension status
+    wiki = config.get_active_wiki_config()
+    if wiki:
+        lock_path = os.path.join(wiki['path'], 'extensions.lock')
+        lock = ExtensionLock.load(lock_path)
+        ext_count = len(lock.extensions)
+        if ext_count > 0:
+            resolved = sum(1 for e in lock.extensions.values() if e.status != 'unknown')
+            print(f"Extensions:      {resolved}/{ext_count} resolved")
+        else:
+            status['warnings'].append("No extensions.lock - run 'clone' to resolve extensions")
     
     # Warnings
     if status['warnings']:

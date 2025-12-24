@@ -17,3 +17,6 @@ wikis/
 wikis.yaml
 .DS_Store
 portable_wiki/.state
+portable_wiki/extensions
+wikis/*/extensions/
+wikis/*/extensions.lock
