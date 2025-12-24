@@ -11,8 +11,8 @@ wheels/
 export/
 
 # User data
-portable_wiki/data/ 
-portable_wiki/LocalSettings.php/
+portable_wiki/data
+portable_wiki/LocalSettings.php
 wikis/
 wikis.yaml
 .DS_Store
