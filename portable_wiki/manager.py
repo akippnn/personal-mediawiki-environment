@@ -112,8 +112,21 @@ def cmd_import(args):
     
     print(f"\nImported {success}/{len(xml_files)} files")
     
+    # Import images
+    media_dir = os.path.join(SCRIPT_DIR, 'data', 'media')
+    if os.path.exists(media_dir) and os.listdir(media_dir):
+        img_count = len(os.listdir(media_dir))
+        print(f"\nImporting {img_count} images...")
+        result = exec_mediawiki('php', 'maintenance/importImages.php', '/var/www/data/media', '--overwrite')
+        if result.returncode == 0:
+            print("✓ Images imported")
+        else:
+            print(f"⚠ Image import issues: {result.stderr[:200]}")
+    else:
+        print("\nNo images to import")
+    
     # Rebuild indexes
-    print("Rebuilding database...")
+    print("\nRebuilding database...")
     exec_mediawiki('php', 'maintenance/rebuildrecentchanges.php')
     exec_mediawiki('php', 'maintenance/initSiteStats.php', '--update')
 
