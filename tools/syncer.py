@@ -1,44 +1,88 @@
+"""
+Syncer - Push changes from local to remote wiki
+
+Optimized for large wikis (10k+ pages):
+- Batched page enumeration (generators)
+- Parallel page comparison
+- Progress logging
+"""
 import os
-from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from .api import SyncApi
+
+BATCH_SIZE = 50
+MAX_WORKERS = 4
 
 class Syncer:
     """
     Handles the 'Push' logic:
-    1. Gets all pages from Local (Portable Wiki).
-    2. Gets corresponding pages from Remote.
-    3. Compares timestamps/content.
-    4. Pushes changes.
+    1. Enumerate local pages with generators (batched)
+    2. Compare with remote in parallel
+    3. Push changes
     """
     def __init__(self, local_api: SyncApi, remote_api: SyncApi):
         self.local = local_api
         self.remote = remote_api
+        self.stats = {'checked': 0, 'pushed': 0, 'skipped': 0, 'failed': 0}
 
     def push(self):
-        """Performs the push operation."""
-        print("Analyizing local changes...")
+        """Performs the push operation with batching and parallelism."""
+        print("Analyzing local changes...")
         
-        # 1. Get all local pages
-        # We assume local is small enough to get all pages. 
-        # For larger wikis, generators/iterators would be better.
-        params = {'action': 'query', 'list': 'allpages', 'aplimit': 'max'}
-        data = self.local.request(params)
-        local_pages = data.get('query', {}).get('allpages', [])
+        total = 0
+        for batch in self._enumerate_pages_batched():
+            total += len(batch)
+            print(f"Checking batch of {len(batch)} pages (total: {total})...")
+            self._process_batch(batch)
         
-        print(f"Found {len(local_pages)} local pages to check.")
-        
-        for page in local_pages:
-            title = page['title']
-            self._sync_page(title)
+        self._print_summary()
 
-    def _sync_page(self, title):
+    def _enumerate_pages_batched(self):
+        """Generator that yields batches of page titles."""
+        apcontinue = None
+        while True:
+            params = {
+                'action': 'query',
+                'list': 'allpages',
+                'aplimit': BATCH_SIZE
+            }
+            if apcontinue:
+                params['apcontinue'] = apcontinue
+            
+            data = self.local.request(params)
+            if not data:
+                break
+            
+            pages = data.get('query', {}).get('allpages', [])
+            if pages:
+                yield [p['title'] for p in pages]
+            
+            if 'continue' not in data:
+                break
+            apcontinue = data['continue'].get('apcontinue')
+
+    def _process_batch(self, titles: list):
+        """Process a batch of pages in parallel."""
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = {executor.submit(self._sync_page, title): title for title in titles}
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    title = futures[future]
+                    print(f"[ERROR] Exception for '{title}': {e}")
+                    self.stats['failed'] += 1
+
+    def _sync_page(self, title: str):
+        """Sync a single page."""
+        self.stats['checked'] += 1
+        
         # Get Local Content & Time
         local_info = self._get_page_info(self.local, title)
-        if not local_info: return # Should not happen if discovered via allpages
+        if not local_info:
+            return
         
         # Get Remote Content & Time
-        # Only fetch metadata first to save bandwidth if possible? 
-        # We need timestamp.
         remote_info = self._get_page_info(self.remote, title)
         
         should_push = False
@@ -48,25 +92,16 @@ class Syncer:
             should_push = True
             reason = "New Page"
         else:
-            # Compare Timestamps
-            # ISO format: 2025-12-23T12:00:00Z
             l_ts = local_info['timestamp']
             r_ts = remote_info['timestamp']
             
             if l_ts > r_ts:
-                # Local is newer. But is content different?
                 if local_info['content'] != remote_info['content']:
                     should_push = True
-                    reason = f"Local newer ({l_ts} > {r_ts})"
-                else:
-                    # Timestamps differ but content same? No push needed.
-                    pass
+                    reason = f"Local newer"
             elif l_ts < r_ts:
-                print(f"[SKIP] Remote is newer for '{title}' ({r_ts} > {l_ts}). Pull required.")
+                self.stats['skipped'] += 1
                 return
-            else:
-                # Same timestamp
-                pass
 
         if should_push:
             print(f"[PUSH] '{title}': {reason}")
@@ -76,25 +111,29 @@ class Syncer:
                 summary=f"Sync Manager Push: {reason}"
             )
             if success:
-                print(f"[SUCCESS] Pushed '{title}'.")
+                self.stats['pushed'] += 1
             else:
-                print(f"[FAILED] Could not push '{title}'.")
+                self.stats['failed'] += 1
+        else:
+            self.stats['skipped'] += 1
 
     def _get_page_info(self, api, title):
         """Helper to get content and timestamp of a page."""
         params = {
-            'action': 'query', 
-            'prop': 'revisions', 
-            'rvprop': 'content|timestamp', 
+            'action': 'query',
+            'prop': 'revisions',
+            'rvprop': 'content|timestamp',
             'titles': title
         }
         try:
             data = api.request(params)
             pages = data.get('query', {}).get('pages', [])
-            if not pages: return None
+            if not pages:
+                return None
             
             page = pages[0]
-            if 'missing' in page: return None
+            if 'missing' in page:
+                return None
             
             rev = page.get('revisions', [])[0]
             return {
@@ -102,6 +141,15 @@ class Syncer:
                 'content': rev.get('content')
             }
         except Exception as e:
-            # If local/remote fails, we log and return None
-            print(f"Error fetching info for '{title}': {e}")
             return None
+
+    def _print_summary(self):
+        """Print push summary."""
+        print("\n" + "=" * 40)
+        print("Push Summary")
+        print("=" * 40)
+        print(f"  Checked:  {self.stats['checked']}")
+        print(f"  Pushed:   {self.stats['pushed']}")
+        print(f"  Skipped:  {self.stats['skipped']}")
+        print(f"  Failed:   {self.stats['failed']}")
+        print("=" * 40)
