@@ -14,3 +14,4 @@ export/
 portable_wiki/data/ 
 portable_wiki/LocalSettings.php/
 sync_config.yaml
+.DS_Store
