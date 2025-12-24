@@ -1,13 +1,13 @@
 # Local MediaWiki Tools
 
-Clone MediaWiki sites locally, edit offline, push changes back.
+> ⚠️ **Work in Progress** — Further testing needed: rate limits, push functionality, edge cases.
 
 ## Quick Start
 
 ```bash
 uv run main.py clone --url "https://your-wiki.com/api.php" --name mywiki
 # Edit at http://localhost:8080 (admin/adminpassword)
-uv run main.py push
+uv run main.py push  # untested
 ```
 
 ## Commands
@@ -15,7 +15,7 @@ uv run main.py push
 | Command | Description |
 |---------|-------------|
 | `clone --url URL [--name NAME]` | Clone a wiki |
-| `push` | Push local → remote |
+| `push` | Push local → remote *(untested)* |
 | `list` | Show all cloned wikis |
 | `swap NAME` | Switch active wiki |
 | `start` | Start Docker containers |
