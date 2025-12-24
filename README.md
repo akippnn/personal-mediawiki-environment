@@ -18,8 +18,9 @@ uv run main.py push  # untested
 | `push` | Push local → remote *(untested)* |
 | `list` | Show all cloned wikis |
 | `swap NAME` | Switch active wiki |
+| `status` | Show environment status |
 | `start` | Start Docker containers |
-| `setup` | Install + import data |
+| `sync` | Install + import data |
 | `cleanup [-v] [-d]` | Stop & remove containers |
 
 ## Multi-Wiki Support
