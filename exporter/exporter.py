@@ -382,18 +382,43 @@ class MediaWikiExporter:
         self.state.save()
 
     def _process_image_batch(self, image_queue: Deque[str]):
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
         batch = [image_queue.popleft() for _ in range(min(BATCH_SIZE, len(image_queue)))]
         if not batch: return
         self.log(f"Checking for updates on {len(batch)} images...")
         params = {'action': 'query', 'prop': 'imageinfo', 'iiprop': 'url|sha1', 'titles': '|'.join(batch)}
         data = self.api.request(params, self._stop_event)
         if not data: return
+        
+        # Collect images that need downloading
+        to_download = []
         for page in data.get('query', {}).get('pages', []):
             if 'imageinfo' not in page: continue
             info = page['imageinfo'][0]
             title, url, new_hash = page['title'], info.get('url'), info.get('sha1')
             if url and new_hash and self.state.needs_image_update(title, new_hash):
-                self._download_media(url, title, new_hash)
+                to_download.append((url, title, new_hash))
+        
+        if not to_download:
+            return
+        
+        self.log(f"Downloading {len(to_download)} images (parallel, 4 workers)...")
+        
+        # Download in parallel with 4 workers
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {executor.submit(self._download_media, url, title, new_hash): title 
+                      for url, title, new_hash in to_download}
+            for future in as_completed(futures):
+                if self._stop_event.is_set():
+                    break
+                try:
+                    future.result()
+                except Exception as e:
+                    self.log(f"Download error: {e}")
+        
+        # Small delay between batches to be polite
+        time.sleep(0.5)
 
     def _render_wikitext(self, wikitext: str, depth=0) -> Tuple[str, List[str], List[Dict]]:
         if depth > MAX_RECURSION_DEPTH: return "[[TEMPLATE RECURSION LIMIT EXCEEDED]]", [], []
