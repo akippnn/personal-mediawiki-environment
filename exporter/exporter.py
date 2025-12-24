@@ -8,6 +8,7 @@ from collections import deque
 from typing import List, Deque, Dict, Set, Tuple
 
 import mwparserfromhell
+import requests
 import yaml
 
 from api import MediaWikiApi
@@ -455,13 +456,30 @@ class MediaWikiExporter:
     def _download_media(self, url: str, title: str, new_hash: str):
         self.log(f"Downloading media: {title}")
         dest_path = os.path.join(self.media_dir, sanitize_filename(title.split(':', 1)[-1]))
-        def streamer():
-            with self.api.session.get(url, stream=True, timeout=60) as r:
-                r.raise_for_status()
-                for chunk in r.iter_content(8192):
-                    if self._stop_event.is_set(): break; yield chunk
+        
         try:
-            atomic_write_bytes(dest_path, streamer)
-            self.state.update_image_hash(title, new_hash)
+            # Use a fresh request (not the API session) for CDN downloads
+            resp = requests.get(url, stream=True, timeout=60, headers={
+                'User-Agent': 'PortableMediaWikiEditor/1.0'
+            })
+            resp.raise_for_status()
+            
+            # Write directly to file
+            with open(dest_path, 'wb') as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if self._stop_event.is_set():
+                        break
+                    if chunk:
+                        f.write(chunk)
+            
+            # Verify file was written
+            file_size = os.path.getsize(dest_path)
+            if file_size > 0:
+                self.state.update_image_hash(title, new_hash)
+                self.log(f"  ✓ {title} ({file_size} bytes)")
+            else:
+                self.log(f"  ⚠ {title} - empty file")
+                os.remove(dest_path)
+                
         except Exception as e:
-            self.log(f"Failed to download {url}: {e}")
+            self.log(f"Failed to download {title}: {e}")
