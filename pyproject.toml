@@ -1,7 +1,7 @@
 [project]
-name = "portable-mediawiki-editor"
+name = "local-mediawiki-tools"
 version = "0.1.0"
-description = "Clone, edit, and sync MediaWiki sites locally"
+description = "Clone MediaWiki sites locally, edit offline, push changes back"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

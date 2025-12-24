@@ -206,8 +206,8 @@ def cmd_cleanup(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        prog='portable-mediawiki-editor',
-        description='Clone, edit, and sync MediaWiki sites locally.'
+        prog='lmt',
+        description='Clone MediaWiki sites locally, edit offline, push changes back.'
     )
     subparsers = parser.add_subparsers(dest='command', required=True)
     
