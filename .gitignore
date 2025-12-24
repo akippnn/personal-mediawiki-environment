@@ -9,3 +9,8 @@ wheels/
 # Virtual environments
 .venv
 export/
+
+# User data
+portable_wiki/data/ 
+portable_wiki/LocalSettings.php/
+sync_config.yaml
