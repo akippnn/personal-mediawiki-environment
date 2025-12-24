@@ -13,6 +13,6 @@ export/
 # User data
 portable_wiki/data/ 
 portable_wiki/LocalSettings.php/
-/wikis
+wikis/
 wikis.yaml
 .DS_Store
