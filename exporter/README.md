@@ -21,7 +21,7 @@ uv run main.py export -- --api-url "https://wiki.example.com/api.php" --scope al
 ### Standalone
 ```bash
 cd exporter
-uv run main.py --api-url "https://wiki.example.com/api.php" --scope all --format xml
+uv run main.py --api-url "https://example.com/api.php" --scope all --format xml
 ```
 
 ## Options

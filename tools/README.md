@@ -1,34 +1,32 @@
 # Sync Tools
 
-API client and sync utilities for the Portable MediaWiki Editor.
+API client and sync utilities for multi-wiki management.
 
 ## Components
 
 | File | Purpose |
 |------|---------|
-| `api.py` | MediaWiki API client with login, CSRF, captcha handling |
-| `syncer.py` | Push logic with conflict detection |
-| `config.py` | Configuration persistence (YAML) |
+| `api.py` | MediaWiki API client (login, CSRF, captcha) |
+| `syncer.py` | Batched push with parallel comparison |
+| `config.py` | Multi-wiki configuration (wikis.yaml) |
+| `wiki_manager.py` | List/swap/create wiki instances |
 
-## API Client Features
+## Config Structure
 
-- **Two-step login** (required for Fandom/modern MediaWiki)
-- **CSRF token** management
-- **Interactive captcha** solving via terminal prompts
-- **Session persistence** across requests
-
-## Usage
-
-Accessed via root `main.py`:
-```bash
-uv run main.py clone --url "https://wiki.example.com/api.php"
-uv run main.py push
+Stored in `wikis.yaml`:
+```yaml
+active_wiki: example_wiki
+wikis:
+  example_wiki:
+    url: https://example.com/api.php
+    username: Username
+    password: password
+    path: wikis/example_wiki
 ```
 
-## Push Logic
+## Syncer Optimization
 
-1. Enumerate all pages from local wiki (localhost:8080)
-2. For each page, compare revision timestamps with remote  
-3. Skip if remote is newer (conflict)
-4. Upload changes via `action=edit`
-5. Handle captcha if required
+For 10k+ page wikis:
+- Batched page enumeration (50 at a time)
+- Parallel comparison (4 workers)
+- Generator-based to avoid memory issues
