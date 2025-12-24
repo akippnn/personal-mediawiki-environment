@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-Portable MediaWiki Editor - Unified CLI Orchestrator
+Local MediaWiki Tools - Unified CLI
 
 Commands:
     clone     Clone a remote wiki
+    fetch     Fetch remote changes (compare)
+    pull      Pull and merge changes
     push      Push local changes to remote
     list      Show all cloned wikis
     swap      Switch active wiki
-    export    Run standalone exporter
+    status    Show environment status
     start     Start portable wiki
-    setup     Run setup script
+    sync      Sync data to portable wiki
     cleanup   Stop and clean up
 """
 import argparse
@@ -132,6 +134,82 @@ def cmd_push(args):
     
     syncer = Syncer(local_api, remote_api)
     syncer.push()
+
+def cmd_fetch(args):
+    """Fetch remote changes (download to .tmp, compare)."""
+    from tools.config import ConfigManager
+    from tools.sync_engine import SyncEngine
+    
+    config = ConfigManager(ROOT_DIR)
+    wiki = config.get_active_wiki_config()
+    
+    if not wiki:
+        print("No active wiki. Run 'clone' first.")
+        return
+    
+    engine = SyncEngine(wiki['path'], wiki['url'])
+    
+    # Check for incomplete previous fetch
+    if engine.has_incomplete_fetch():
+        print("Found incomplete fetch data.")
+        if args.discard:
+            engine.discard_incomplete_fetch()
+        else:
+            print("Use --discard to remove, or run 'pull' to complete.")
+            return
+    
+    summary = engine.fetch(run_exporter)
+    
+    print("\n" + "=" * 50)
+    print("Fetch Summary")
+    print("=" * 50)
+    print(f"  New pages:      {len(summary.get('new', []))}")
+    print(f"  Modified:       {len(summary.get('modified', []))}")
+    print(f"  Conflicts:      {len(summary.get('conflicts', []))}")
+    print(f"  Deleted:        {len(summary.get('deleted', []))}")
+    print("=" * 50)
+    
+    if summary.get('conflicts'):
+        print("\n⚠️  Conflicts detected:")
+        for title in summary['conflicts'][:10]:
+            print(f"   • {title}")
+        if len(summary['conflicts']) > 10:
+            print(f"   ... and {len(summary['conflicts']) - 10} more")
+    
+    print("\n→ Run 'pull' to apply changes")
+
+def cmd_pull(args):
+    """Pull fetched changes into local data."""
+    from tools.config import ConfigManager
+    from tools.sync_engine import SyncEngine
+    
+    config = ConfigManager(ROOT_DIR)
+    wiki = config.get_active_wiki_config()
+    
+    if not wiki:
+        print("No active wiki. Run 'clone' first.")
+        return
+    
+    engine = SyncEngine(wiki['path'], wiki['url'])
+    
+    if not engine.has_incomplete_fetch():
+        print("No fetched data. Run 'fetch' first.")
+        return
+    
+    summary = engine.pull()
+    
+    print("\n" + "=" * 50)
+    print("Pull Summary")
+    print("=" * 50)
+    print(f"  Merged:         {len(summary.get('merged', []))}")
+    print(f"  Conflicts:      {len(summary.get('conflicts', []))}")
+    print("=" * 50)
+    
+    if summary.get('conflicts'):
+        conflict_dir = os.path.join(wiki['path'], 'conflicts')
+        print(f"\n⚠️  {len(summary['conflicts'])} conflict files created in:")
+        print(f"   {conflict_dir}")
+        print("\nResolve conflicts manually, then run 'sync' to update portable wiki.")
 
 def cmd_list(args):
     """List all cloned wikis."""
@@ -282,6 +360,15 @@ def main():
     # Push
     p = subparsers.add_parser('push', help='Push local changes to remote')
     p.set_defaults(func=cmd_push)
+    
+    # Fetch
+    p = subparsers.add_parser('fetch', help='Fetch remote changes (compare)')
+    p.add_argument('--discard', action='store_true', help='Discard incomplete previous fetch')
+    p.set_defaults(func=cmd_fetch)
+    
+    # Pull
+    p = subparsers.add_parser('pull', help='Pull and merge fetched changes')
+    p.set_defaults(func=cmd_pull)
     
     # List
     p = subparsers.add_parser('list', help='List all cloned wikis')
