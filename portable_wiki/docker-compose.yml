@@ -1,4 +1,16 @@
 services:
+  setup:
+    image: alpine
+    volumes:
+      - ./mediawiki-entrypoint.sh:/scripts/setup.sh:ro
+      - ./db-entrypoint.sh:/scripts/db-setup.sh:ro
+      - ./data:/data:ro
+      - mediawiki_extensions:/extensions
+    command: [ "/bin/sh", "/scripts/setup.sh" ]
+    depends_on:
+      database:
+        condition: service_healthy
+
   mediawiki:
     image: mediawiki:latest
     restart: unless-stopped
@@ -7,19 +19,17 @@ services:
     volumes:
       - ./data:/var/www/data:ro
       - mediawiki_data:/var/www/html/images
+      - mediawiki_extensions:/var/www/html/extensions
     environment:
       - MW_DB_HOST=database
       - MW_DB_USER=wikiuser
-      - MW_DB_PASSWORD=wikipass
+      - MW_DB_PASS=wikipass
       - MW_DB_NAME=my_wiki
-      - MW_ADMIN_USER=admin
-      - MW_ADMIN_PASS=adminpassword
-      - MW_SITE_NAME=PortableWiki
-      - MW_ENABLE_UPLOADS=1
     depends_on:
-      - database
-    links:
-      - database
+      setup:
+        condition: service_completed_successfully
+      database:
+        condition: service_healthy
 
   database:
     image: mariadb:11
@@ -28,10 +38,16 @@ services:
       - MYSQL_DATABASE=my_wiki
       - MYSQL_USER=wikiuser
       - MYSQL_PASSWORD=wikipass
-      - MYSQL_RANDOM_ROOT_PASSWORD=yes
+      - MYSQL_ROOT_PASSWORD=rootpass
     volumes:
       - db_data:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
   db_data:
   mediawiki_data:
+  mediawiki_extensions:
