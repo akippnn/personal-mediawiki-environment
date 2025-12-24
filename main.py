@@ -245,6 +245,8 @@ def cmd_pull(args):
     """Pull fetched changes into local data."""
     from tools.config import ConfigManager
     from tools.sync_engine import SyncEngine
+    from tools.extension_resolver import ExtensionResolver, ExtensionLock
+    from tools.extension_installer import install_extensions
     
     config = ConfigManager(ROOT_DIR)
     wiki = config.get_active_wiki_config()
@@ -259,6 +261,35 @@ def cmd_pull(args):
         print("No fetched data. Run 'fetch' first.")
         return
     
+    # --- Resolve extensions if needed ---
+    extensions_dir = os.path.join(wiki['path'], 'extensions')
+    lock_path = os.path.join(wiki['path'], 'extensions.lock')
+    lock = ExtensionLock.load(lock_path)
+    
+    if len(lock.extensions) == 0:
+        print("\n--- Resolving Extensions (first pull) ---")
+        resolver = ExtensionResolver(wiki['path'])
+        exported_exts = resolver.load_exported_extensions()
+        
+        if exported_exts:
+            print(f"Found {len(exported_exts)} extensions to check...")
+            ext_info = resolver.resolve_all(exported_exts, callback=print)
+            
+            # Prompt for archived
+            archived = resolver.get_unresolved_archived(ext_info)
+            for ext in archived:
+                resolver.prompt_archived(ext)
+            
+            resolver.lock.extensions = ext_info
+            resolver.save()
+            
+            # Install
+            print("\n--- Installing Extensions ---")
+            to_install = resolver.get_extensions_to_install()
+            if to_install:
+                install_extensions(to_install, extensions_dir, callback=print)
+    
+    # --- Pull data ---
     summary = engine.pull()
     
     print("\n" + "=" * 50)
@@ -378,7 +409,31 @@ def cmd_status(args):
             resolved = sum(1 for e in lock.extensions.values() if e.status != 'unknown')
             print(f"Extensions:      {resolved}/{ext_count} resolved")
         else:
-            status['warnings'].append("No extensions.lock - run 'clone' to resolve extensions")
+            status['warnings'].append("No extensions.lock - run 'clone' or 'pull' to resolve extensions")
+        
+        # Check for pending fetch
+        tmp_dir = os.path.join(wiki['path'], '.tmp')
+        if os.path.exists(tmp_dir):
+            tmp_state_file = os.path.join(tmp_dir, 'sync_state.yaml')
+            if os.path.exists(tmp_state_file):
+                from tools.sync_engine import SyncState
+                tmp_state = SyncState.load(tmp_state_file)
+                conflicts = sum(1 for p in tmp_state.pages.values() if p.status == 'conflict')
+                modified = sum(1 for p in tmp_state.pages.values() if p.status == 'modified')
+                new = sum(1 for p in tmp_state.pages.values() if p.status == 'new')
+                print(f"Pending Fetch:   {new} new, {modified} modified, {conflicts} conflicts")
+                if conflicts > 0:
+                    status['warnings'].append(f"{conflicts} conflicts detected - run 'pull' to resolve")
+                else:
+                    status['warnings'].append("Fetch pending - run 'pull' to apply changes")
+        
+        # Check for conflict files
+        conflict_dir = os.path.join(wiki['path'], 'conflicts')
+        if os.path.exists(conflict_dir):
+            conflict_files = [f for f in os.listdir(conflict_dir) if f.endswith('.conflict')]
+            if conflict_files:
+                print(f"Conflicts:       {len(conflict_files)} unresolved")
+                status['warnings'].append(f"{len(conflict_files)} conflict files need manual resolution")
     
     # Warnings
     if status['warnings']:

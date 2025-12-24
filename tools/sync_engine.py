@@ -107,29 +107,47 @@ class SyncEngine:
             'deleted': []
         }
         
+        # First fetch? (no existing state)
+        is_first_fetch = len(self.state.pages) == 0
+        
         # Check remote pages
         for title, remote_rev in remote_pages.items():
-            local_rev = local_pages.get(title)
+            local_rev = local_pages.get(title, 0)
             page_state = self.state.pages.get(title, PageState())
             
-            if local_rev is None:
-                # New page from remote
-                summary['new'].append(title)
+            if is_first_fetch:
+                # First fetch: local is now our base, no conflicts possible
+                page_state.base_revid = local_rev
+                page_state.local_revid = local_rev
                 page_state.remote_revid = remote_rev
-                page_state.status = 'new'
-            elif remote_rev > page_state.base_revid:
-                # Remote has new changes
-                if local_rev > page_state.base_revid:
-                    # Local also modified - CONFLICT
-                    summary['conflicts'].append(title)
-                    page_state.status = 'conflict'
-                else:
-                    # Only remote modified
+                if remote_rev != local_rev:
                     summary['modified'].append(title)
                     page_state.status = 'modified'
-                page_state.remote_revid = remote_rev
+                else:
+                    page_state.status = 'clean'
+            else:
+                # Subsequent fetch: compare against base
+                if local_rev == 0:
+                    # New page from remote
+                    summary['new'].append(title)
+                    page_state.remote_revid = remote_rev
+                    page_state.status = 'new'
+                elif remote_rev != page_state.base_revid:
+                    # Remote has changes since base
+                    if local_rev != page_state.base_revid:
+                        # Local also changed - CONFLICT
+                        summary['conflicts'].append(title)
+                        page_state.status = 'conflict'
+                    else:
+                        # Only remote modified
+                        summary['modified'].append(title)
+                        page_state.status = 'modified'
+                    page_state.remote_revid = remote_rev
+                else:
+                    page_state.status = 'clean'
+                
+                page_state.local_revid = local_rev
             
-            page_state.local_revid = local_rev or 0
             self.state.pages[title] = page_state
         
         # Check for deletions
