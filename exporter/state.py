@@ -36,7 +36,10 @@ class State:
         except (json.JSONDecodeError, IOError): pass
 
     def save(self) -> None:
-        from .utils import atomic_write_text
+        try:
+            from .utils import atomic_write_text
+        except ImportError:
+            from utils import atomic_write_text
         with self._lock:
             data = {
                 'image_versions': self.image_versions,
