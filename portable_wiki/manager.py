@@ -45,6 +45,12 @@ def cmd_status(args):
 def cmd_install(args):
     """Run MediaWiki installation."""
     print("Installing MediaWiki...")
+    
+    # Install lua5.1 for Scribunto
+    print("Installing lua5.1 for Scribunto...")
+    exec_mediawiki('apt-get', 'update')
+    exec_mediawiki('apt-get', 'install', '-y', 'lua5.1')
+    
     result = exec_mediawiki(
         'php', 'maintenance/install.php',
         '--dbserver', 'database',
