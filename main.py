@@ -473,6 +473,55 @@ def cmd_cleanup(args):
     
     print("✓ Cleanup complete.")
 
+def cmd_optimize(args):
+    """Optimize media files with ffmpeg."""
+    from tools.config import ConfigManager
+    from tools.media_optimizer import MediaOptimizer
+    
+    config = ConfigManager(ROOT_DIR)
+    wiki = config.get_active_wiki_config()
+    
+    if not wiki:
+        print("No active wiki. Run 'clone' first.")
+        return
+    
+    media_dir = os.path.join(wiki['path'], 'data', 'media')
+    state_path = os.path.join(wiki['path'], 'media_state.yaml')
+    
+    if not os.path.exists(media_dir):
+        print(f"No media directory found: {media_dir}")
+        return
+    
+    optimizer = MediaOptimizer(media_dir, state_path)
+    
+    print(f"Optimizing media in {media_dir}...")
+    print(f"Quality: {args.quality}, Skip video: {args.skip_video}")
+    print(f"Local only: {not args.include_in_push}")
+    print()
+    
+    summary = optimizer.optimize_all(
+        quality=args.quality,
+        skip_video=args.skip_video,
+        local_only=not args.include_in_push,
+        callback=print
+    )
+    
+    print("\n" + "=" * 50)
+    print("Optimization Summary")
+    print("=" * 50)
+    print(f"  Optimized:   {summary.get('optimized', 0)}")
+    print(f"  Skipped:     {summary.get('skipped', 0)}")
+    print(f"  Failed:      {summary.get('failed', 0)}")
+    
+    if summary.get('saved_bytes', 0) > 0:
+        saved = summary['saved_bytes']
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if saved < 1024:
+                print(f"  Saved:       {saved:.1f} {unit}")
+                break
+            saved /= 1024
+    print("=" * 50)
+
 def main():
     parser = argparse.ArgumentParser(
         prog='lmt',
@@ -532,6 +581,13 @@ def main():
     p.add_argument('--volumes', '-v', action='store_true', help='Also remove Docker volumes')
     p.add_argument('--data', '-d', action='store_true', help='Also remove exported data')
     p.set_defaults(func=cmd_cleanup)
+    
+    # Optimize
+    p = subparsers.add_parser('optimize', help='Optimize media files with ffmpeg')
+    p.add_argument('--quality', '-q', type=int, default=80, help='Quality 1-100 (default: 80)')
+    p.add_argument('--skip-video', action='store_true', help='Skip video files')
+    p.add_argument('--include-in-push', action='store_true', help='Allow optimized files in push')
+    p.set_defaults(func=cmd_optimize)
     
     args = parser.parse_args()
     args.func(args)
