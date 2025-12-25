@@ -22,11 +22,13 @@ class PageState:
 class SyncState:
     """Tracks sync state for a wiki."""
     last_fetch: Optional[str] = None
+    last_sync: Optional[str] = None  # When import completed
     pages: Dict[str, PageState] = field(default_factory=dict)
     
     def save(self, path: str):
         data = {
             'last_fetch': self.last_fetch,
+            'last_sync': self.last_sync,
             'pages': {
                 name: {
                     'base_revid': p.base_revid,
@@ -46,7 +48,10 @@ class SyncState:
             return cls()
         with open(path, 'r') as f:
             data = yaml.safe_load(f) or {}
-        state = cls(last_fetch=data.get('last_fetch'))
+        state = cls(
+            last_fetch=data.get('last_fetch'),
+            last_sync=data.get('last_sync')
+        )
         for name, p in data.get('pages', {}).items():
             state.pages[name] = PageState(
                 base_revid=p.get('base_revid', 0),
@@ -78,6 +83,91 @@ class SyncEngine:
         if os.path.exists(self.tmp_dir):
             shutil.rmtree(self.tmp_dir)
             print("Discarded incomplete fetch data.")
+
+    # =========================================================================
+    # LOCAL CHANGE DETECTION
+    # =========================================================================
+    
+    def get_local_revisions(self, local_api_url: str = 'http://localhost:8080/api.php') -> Dict[str, int]:
+        """
+        Query local wiki for current revision IDs of all pages.
+        Returns dict: {page_title: revision_id}
+        """
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from core import MediaWikiClient
+        
+        client = MediaWikiClient(local_api_url)
+        revisions = {}
+        
+        # Query all pages with their revision IDs
+        continue_token = None
+        while True:
+            params = {
+                'action': 'query',
+                'generator': 'allpages',
+                'gaplimit': 'max',
+                'prop': 'revisions',
+                'rvprop': 'ids'
+            }
+            if continue_token:
+                params['gapcontinue'] = continue_token
+            
+            data = client.request(params)
+            if not data:
+                break
+            
+            pages = data.get('query', {}).get('pages', {})
+            for page_id, page in pages.items():
+                title = page.get('title')
+                if title and 'revisions' in page:
+                    revisions[title] = page['revisions'][0]['revid']
+            
+            # Check for continuation
+            if 'continue' in data:
+                continue_token = data['continue'].get('gapcontinue')
+            else:
+                break
+        
+        return revisions
+    
+    def update_local_revisions(self, local_api_url: str = 'http://localhost:8080/api.php'):
+        """
+        Query local wiki and update sync_state with current local revisions.
+        Call this after sync/import completes.
+        """
+        print("Recording local wiki revision state...")
+        revisions = self.get_local_revisions(local_api_url)
+        
+        for title, revid in revisions.items():
+            if title not in self.state.pages:
+                self.state.pages[title] = PageState()
+            self.state.pages[title].local_revid = revid
+            # On fresh sync, base_revid = local_revid
+            if self.state.pages[title].base_revid == 0:
+                self.state.pages[title].base_revid = revid
+        
+        self.state.last_sync = datetime.now().isoformat()
+        self.state.save(self.state_file)
+        print(f"Recorded {len(revisions)} page revisions.")
+    
+    def get_local_changes(self, local_api_url: str = 'http://localhost:8080/api.php') -> List[str]:
+        """
+        Detect pages modified locally since last sync.
+        Returns list of modified page titles.
+        """
+        current_revs = self.get_local_revisions(local_api_url)
+        modified = []
+        
+        for title, revid in current_revs.items():
+            if title in self.state.pages:
+                if revid != self.state.pages[title].local_revid:
+                    modified.append(title)
+            else:
+                # New page created locally
+                modified.append(title)
+        
+        return modified
 
     def fetch(self, exporter_func) -> Dict:
         """

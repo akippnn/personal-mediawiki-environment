@@ -57,6 +57,7 @@ def run_sync():
     """Run sync via manager.py and save state."""
     from tools.config import ConfigManager
     from tools.wiki_manager import WikiManager
+    from tools.sync_engine import SyncEngine
     
     config = ConfigManager(ROOT_DIR)
     manager = WikiManager(config)
@@ -66,9 +67,15 @@ def run_sync():
         print("No active wiki. Run 'clone' first.")
         return
     
+    wiki = config.get_wiki_config(active)
+    
     print(f"Syncing '{active}'...")
     subprocess.run([sys.executable, 'manager.py', 'install'], cwd=PORTABLE_DIR, check=True)
     subprocess.run([sys.executable, 'manager.py', 'import'], cwd=PORTABLE_DIR, check=True)
+    
+    # Record local wiki state for change detection
+    engine = SyncEngine(wiki['path'], wiki['url'])
+    engine.update_local_revisions()
     
     # Save sync state
     manager.save_sync_state(active)
@@ -438,6 +445,20 @@ def cmd_status(args):
             if conflict_files:
                 print(f"Conflicts:       {len(conflict_files)} unresolved")
                 status['warnings'].append(f"{len(conflict_files)} conflict files need manual resolution")
+        
+        # Check for local changes (only if container running)
+        if status['container_running']:
+            try:
+                from tools.sync_engine import SyncEngine
+                engine = SyncEngine(wiki['path'], wiki['url'])
+                local_changes = engine.get_local_changes()
+                if local_changes:
+                    print(f"Local Changes:   {len(local_changes)} pages modified")
+                    status['warnings'].append(f"{len(local_changes)} pages modified locally - run 'push' to upload")
+                else:
+                    print(f"Local Changes:   none")
+            except Exception:
+                print(f"Local Changes:   (container not ready)")
     
     # Warnings
     if status['warnings']:
