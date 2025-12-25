@@ -1,6 +1,6 @@
 # Local MediaWiki Tools
 
-> ⚠️ **Work in Progress** — Further testing needed: rate limits, remote and local sync, conflict resolution, push functionality, and other potential edge cases.
+> ⚠️ **Work in Progress** — Further testing needed: rate limits, remote and local sync, conflict resolution, push functionality, and other potential edge cases. Do not use in production.
 
 ## Quick Start
 
