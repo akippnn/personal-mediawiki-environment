@@ -189,8 +189,9 @@ def cmd_clone(args):
 def cmd_push(args):
     """Push local changes to remote wiki."""
     from tools.config import ConfigManager
+    from tools.sync_engine import SyncEngine
     from core import MediaWikiClient
-    from tools.syncer import Syncer
+    import getpass
     
     config = ConfigManager(ROOT_DIR)
     wiki = config.get_active_wiki_config()
@@ -199,13 +200,73 @@ def cmd_push(args):
         print("No active wiki. Run 'clone' first.")
         return
     
-    print(f"Pushing changes from '{config.get_active_wiki()}'...")
+    wiki_name = config.get_active_wiki()
+    print(f"Checking for local changes in '{wiki_name}'...")
     
-    local_api = MediaWikiClient('http://localhost:8080/api.php')
-    remote_api = MediaWikiClient(wiki['url'], wiki.get('username'), wiki.get('password'))
+    # Detect local changes
+    engine = SyncEngine(wiki['path'], wiki['url'])
+    modified = engine.get_local_changes()
     
-    syncer = Syncer(local_api, remote_api)
-    syncer.push()
+    if not modified:
+        print("No local changes to push.")
+        return
+    
+    print(f"\nFound {len(modified)} modified page(s):")
+    for title in modified[:10]:
+        print(f"  • {title}")
+    if len(modified) > 10:
+        print(f"  ... and {len(modified) - 10} more")
+    
+    # Confirm
+    if not args.yes:
+        response = input(f"\nPush {len(modified)} page(s) to remote? [y/N]: ").strip().lower()
+        if response != 'y':
+            print("Cancelled.")
+            return
+    
+    # Get credentials if needed
+    username = wiki.get('username')
+    password = wiki.get('password')
+    if not password and username:
+        password = getpass.getpass(f"Password for {username}: ")
+    
+    # Connect to remote
+    remote = MediaWikiClient(wiki['url'], username, password)
+    if username:
+        if not remote.login():
+            print("Login failed. Check credentials.")
+            return
+    
+    # Connect to local
+    local = MediaWikiClient('http://localhost:8080/api.php')
+    
+    # Push each modified page
+    success = 0
+    failed = 0
+    for i, title in enumerate(modified, 1):
+        print(f"[{i}/{len(modified)}] Pushing '{title}'...")
+        
+        # Get content from local wiki
+        content = local.get_page_content(title)
+        if content is None:
+            print(f"  ⚠ Could not get content, skipping")
+            failed += 1
+            continue
+        
+        # Push to remote
+        if remote.edit_page(title, content, f"Pushed from local wiki"):
+            success += 1
+            # Update local_revid in state
+            current_revs = engine.get_local_revisions()
+            if title in current_revs:
+                engine.state.pages[title].local_revid = current_revs[title]
+        else:
+            failed += 1
+    
+    # Save state
+    engine.state.save(engine.state_file)
+    
+    print(f"\n✓ Push complete: {success} succeeded, {failed} failed")
 
 def cmd_fetch(args):
     """Fetch remote changes (download to .tmp, compare)."""
@@ -455,6 +516,11 @@ def cmd_status(args):
                 if local_changes:
                     print(f"Local Changes:   {len(local_changes)} pages modified")
                     status['warnings'].append(f"{len(local_changes)} pages modified locally - run 'push' to upload")
+                    # Show details if --local flag
+                    if args.local:
+                        print("\n  Modified pages:")
+                        for title in local_changes:
+                            print(f"    • {title}")
                 else:
                     print(f"Local Changes:   none")
             except Exception:
@@ -564,6 +630,7 @@ def main():
     
     # Push
     p = subparsers.add_parser('push', help='Push local changes to remote')
+    p.add_argument('--yes', '-y', action='store_true', help='Skip confirmation prompt')
     p.set_defaults(func=cmd_push)
     
     # Fetch
@@ -599,6 +666,7 @@ def main():
     
     # Status
     p = subparsers.add_parser('status', help='Show wiki environment status')
+    p.add_argument('--local', '-l', action='store_true', help='List locally modified pages')
     p.set_defaults(func=cmd_status)
     
     # Cleanup
