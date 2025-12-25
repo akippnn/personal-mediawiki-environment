@@ -2,7 +2,7 @@ services:
   setup:
     image: alpine
     volumes:
-      - ./mediawiki-entrypoint.sh:/scripts/setup.sh:ro
+      - ./scripts/mediawiki-entrypoint.sh:/scripts/setup.sh:ro
       - ./data:/data:ro
       - ./extensions:/extensions:ro
     command: [ "/bin/sh", "/scripts/setup.sh" ]

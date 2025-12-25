@@ -11,7 +11,10 @@ import mwparserfromhell
 import requests
 import yaml
 
-from api import MediaWikiApi
+# Import from core package
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core import MediaWikiClient, get_logger
+
 from state import State
 from utils import make_dir, sanitize_filename, atomic_write_text, atomic_write_bytes
 
@@ -22,7 +25,8 @@ class MediaWikiExporter:
     """Orchestrates a robust export using direct WikiText parsing or XML dump."""
 
     def __init__(self, api_url: str, output_dir: str, **kwargs):
-        self.api = MediaWikiApi(api_url=api_url, **kwargs)
+        self.api = MediaWikiClient(api_url=api_url, **kwargs)
+        self.logger = get_logger('exporter')
         self.state = State(output_dir)
         self._stop_event = threading.Event()
         self._log_lines: Deque[str] = deque(maxlen=2000)

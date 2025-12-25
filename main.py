@@ -180,7 +180,7 @@ def cmd_clone(args):
 def cmd_push(args):
     """Push local changes to remote wiki."""
     from tools.config import ConfigManager
-    from tools.api import SyncApi
+    from core import MediaWikiClient
     from tools.syncer import Syncer
     
     config = ConfigManager(ROOT_DIR)
@@ -192,8 +192,8 @@ def cmd_push(args):
     
     print(f"Pushing changes from '{config.get_active_wiki()}'...")
     
-    local_api = SyncApi('http://localhost:8080/api.php')
-    remote_api = SyncApi(wiki['url'], wiki.get('username'), wiki.get('password'))
+    local_api = MediaWikiClient('http://localhost:8080/api.php')
+    remote_api = MediaWikiClient(wiki['url'], wiki.get('username'), wiki.get('password'))
     
     syncer = Syncer(local_api, remote_api)
     syncer.push()

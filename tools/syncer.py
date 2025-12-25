@@ -7,8 +7,12 @@ Optimized for large wikis (10k+ pages):
 - Progress logging
 """
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from .api import SyncApi
+
+# Import from core
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core import MediaWikiClient, get_logger
 
 BATCH_SIZE = 50
 MAX_WORKERS = 4
@@ -20,9 +24,10 @@ class Syncer:
     2. Compare with remote in parallel
     3. Push changes
     """
-    def __init__(self, local_api: SyncApi, remote_api: SyncApi):
+    def __init__(self, local_api: MediaWikiClient, remote_api: MediaWikiClient):
         self.local = local_api
         self.remote = remote_api
+        self.logger = get_logger('syncer')
         self.stats = {'checked': 0, 'pushed': 0, 'skipped': 0, 'failed': 0}
 
     def push(self):
