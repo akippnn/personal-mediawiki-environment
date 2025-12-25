@@ -75,13 +75,14 @@ class MediaWikiExporter:
     def report(self): return self.state.get_report()
     def request_stop(self): self.log("Stop requested..."); self._stop_event.set()
 
-    def run(self, root_category: str = None, scope: str = 'category', export_format: str = 'markdown'):
+    def run(self, root_category: str = None, scope: str = 'category', export_format: str = 'markdown', skip_media: bool = False):
         """
         Runs the export process.
         scope: 'category' (default) or 'all'
         export_format: 'markdown' (default) or 'xml'
+        skip_media: If True, skip downloading images (for fetch mode)
         """
-        self.log(f"Starting export with scope={scope}, format={export_format}")
+        self.log(f"Starting export with scope={scope}, format={export_format}, skip_media={skip_media}")
         
         # 1. Discover Pages
         all_pages = set()
@@ -112,15 +113,17 @@ class MediaWikiExporter:
             else:
                 self._batch_export_xml(list(all_pages))
             
-            # Also download images for XML export
-            self.log("Discovering images...")
-            all_images = self._discover_all_images()
-            self.log(f"Found {len(all_images)} images to check.")
-            if all_images:
-                img_q = deque(all_images)
-                while img_q and not self._stop_event.is_set():
-                    self._process_image_batch(img_q)
-                
+            # Download images (skip if metadata-only fetch)
+            if not skip_media:
+                self.log("Discovering images...")
+                all_images = self._discover_all_images()
+                self.log(f"Found {len(all_images)} images to check.")
+                if all_images:
+                    img_q = deque(all_images)
+                    while img_q and not self._stop_event.is_set():
+                        self._process_image_batch(img_q)
+            else:
+                self.log("Skipping media download (metadata-only mode)")
         else:
             # Markdown export (Original logic)
             if scope == 'all':

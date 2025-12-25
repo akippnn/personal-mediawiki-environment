@@ -7,11 +7,11 @@ import traceback
 from exporter import MediaWikiExporter
 from tui import Tui
 
-def run_without_tui(exporter: MediaWikiExporter, category: str, scope: str, export_format: str):
+def run_without_tui(exporter: MediaWikiExporter, category: str, scope: str, export_format: str, skip_media: bool = False):
     """A simple runner for non-interactive environments."""
     print("TUI disabled. Logging directly to console and to debug.log file.")
     
-    worker = threading.Thread(target=exporter.run, args=(category, scope, export_format), daemon=True)
+    worker = threading.Thread(target=exporter.run, args=(category, scope, export_format, skip_media), daemon=True)
     worker.start()
     
     try:
@@ -38,6 +38,7 @@ def main():
     p.add_argument('--user-agent', default='mediawiki-exporter/2.0', help='User-Agent header')
     p.add_argument('--maxlag', type=int, default=5, help='maxlag value sent to MediaWiki API')
     p.add_argument('--no-tui', action='store_true', help='Disable the rich TUI and print logs directly to the console.')
+    p.add_argument('--skip-media', action='store_true', help='Skip downloading media files (metadata only)')
     args = p.parse_args()
 
     # Validate args
@@ -56,13 +57,13 @@ def main():
         signal.signal(signal.SIGTERM, signal_handler)
 
         if args.no_tui:
-            run_without_tui(exporter, args.category, args.scope, args.format)
+            run_without_tui(exporter, args.category, args.scope, args.format, args.skip_media)
         else:
             # TUI might need updates to support new args, but for now let's assume TUI only works with category/markdown
             # or we disable TUI for XML/All for simplicity if needed.
             if args.format == 'xml' or args.scope == 'all':
                 print("TUI not supported for XML export or 'all' scope yet. Running in console mode.")
-                run_without_tui(exporter, args.category, args.scope, args.format)
+                run_without_tui(exporter, args.category, args.scope, args.format, args.skip_media)
             else:
                 tui = Tui(exporter, args.category)
                 tui.run()

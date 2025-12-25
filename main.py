@@ -31,9 +31,9 @@ def slugify(name: str) -> str:
     """Create a filesystem-safe name."""
     return name.lower().replace(' ', '_').replace('/', '_').replace(':', '_')
 
-def run_exporter(api_url: str, output_dir: str, mode: str = 'all'):
+def run_exporter(api_url: str, output_dir: str, mode: str = 'all', skip_media: bool = False):
     """Run the exporter subprocess."""
-    print(f"Starting Exporter (scope={mode})...")
+    print(f"Starting Exporter (scope={mode}, skip_media={skip_media})...")
     cmd = [
         sys.executable, os.path.join(EXPORTER_DIR, 'main.py'),
         '--api-url', api_url,
@@ -42,6 +42,8 @@ def run_exporter(api_url: str, output_dir: str, mode: str = 'all'):
         '--output-dir', output_dir,
         '--no-tui'
     ]
+    if skip_media:
+        cmd.append('--skip-media')
     subprocess.run(cmd, check=True)
     print("Export completed successfully.")
 
@@ -221,7 +223,9 @@ def cmd_fetch(args):
             print("Use --discard to remove, or run 'pull' to complete.")
             return
     
-    summary = engine.fetch(run_exporter)
+    # Use skip_media=True for fetch (only download metadata, not images)
+    fetch_exporter = lambda url, output: run_exporter(url, output, skip_media=True)
+    summary = engine.fetch(fetch_exporter)
     
     print("\n" + "=" * 50)
     print("Fetch Summary")
