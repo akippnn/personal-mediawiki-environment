@@ -55,7 +55,7 @@ class MediaWikiClient:
     def request(
         self,
         params: Dict[str, Any],
-        method: str = 'GET',
+        method_or_event: str | threading.Event = 'GET',
         stop_event: Optional[threading.Event] = None
     ) -> Optional[Dict[str, Any]]:
         """
@@ -69,12 +69,19 @@ class MediaWikiClient:
         
         Args:
             params: API parameters
-            method: 'GET' or 'POST'
+            method_or_event: 'GET', 'POST', or threading.Event (backwards compat)
             stop_event: Optional threading.Event to cancel request
             
         Returns:
             JSON response dict, or None if stopped/cancelled
         """
+        # Backwards compatibility: old signature was request(params, stop_event)
+        if isinstance(method_or_event, threading.Event):
+            stop_event = method_or_event
+            method = 'GET'
+        else:
+            method = method_or_event
+        
         request_params = {
             'format': 'json',
             'formatversion': 2,
