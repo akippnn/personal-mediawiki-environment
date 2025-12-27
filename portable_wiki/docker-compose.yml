@@ -11,7 +11,7 @@ services:
         condition: service_healthy
 
   mediawiki:
-    image: mediawiki:latest
+    image: mediawiki:${MW_VERSION:-latest}
     restart: unless-stopped
     ports:
       - 8080:80

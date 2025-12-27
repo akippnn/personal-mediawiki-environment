@@ -48,9 +48,31 @@ def run_exporter(api_url: str, output_dir: str, mode: str = 'all', skip_media: b
     print("Export completed successfully.")
 
 def start_docker():
-    """Start Docker containers."""
+    """Start Docker containers with correct MediaWiki version."""
+    from tools.config import ConfigManager
+    
     print("Starting Portable Wiki (Docker)...")
-    subprocess.run(['docker-compose', 'up', '-d'], cwd=PORTABLE_DIR, check=True)
+    
+    # Set MW_VERSION from siteinfo.yaml if available
+    config = ConfigManager(ROOT_DIR)
+    wiki = config.get_active_wiki_config()
+    env = os.environ.copy()
+    
+    if wiki:
+        siteinfo_path = os.path.join(wiki['path'], 'data', 'siteinfo.yaml')
+        if os.path.exists(siteinfo_path):
+            with open(siteinfo_path, 'r') as f:
+                siteinfo = yaml.safe_load(f) or {}
+            version = siteinfo.get('mediawiki_version')
+            if version:
+                # Docker Hub uses major.minor (e.g., "1.39" not "1.39.0")
+                parts = version.split('.')
+                if len(parts) >= 2:
+                    docker_version = f"{parts[0]}.{parts[1]}"
+                    env['MW_VERSION'] = docker_version
+                    print(f"Using MediaWiki version: {docker_version}")
+    
+    subprocess.run(['docker-compose', 'up', '-d'], cwd=PORTABLE_DIR, env=env, check=True)
     print("Docker services started.")
 
 def run_sync():
