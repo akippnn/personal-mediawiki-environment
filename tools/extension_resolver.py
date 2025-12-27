@@ -143,6 +143,12 @@ class ExtensionResolver:
                                         and not a.startswith('reason=')]
                     if callback:
                         callback(f"  ⚠ {name} (archived)")
+                    
+                    # Try Gerrit anyway for archived extensions
+                    if self._check_gerrit_exists(name):
+                        info.source = 'gerrit'
+                        if callback:
+                            callback(f"    → Still on Gerrit, will try to clone")
                     return info
                 
                 # Extension exists, check if on Gerrit
@@ -153,10 +159,24 @@ class ExtensionResolver:
                     
         except Exception as e:
             info.status = 'unknown'
-            if callback:
+            # Try Gerrit anyway for unknown extensions
+            if self._check_gerrit_exists(name):
+                info.source = 'gerrit'
+                if callback:
+                    callback(f"  ? {name} (unknown, but found on Gerrit)")
+            elif callback:
                 callback(f"  ? {name} (check failed: {e})")
         
         return info
+
+    def _check_gerrit_exists(self, name: str) -> bool:
+        """Check if extension exists on Gerrit."""
+        try:
+            url = f"https://gerrit.wikimedia.org/r/projects/mediawiki%2Fextensions%2F{name}"
+            resp = self.session.get(url, timeout=5)
+            return resp.status_code == 200
+        except Exception:
+            return False
 
     def resolve_all(self, extensions: List[str], callback=None) -> Dict[str, ExtensionInfo]:
         """Check all extensions, return info dict."""

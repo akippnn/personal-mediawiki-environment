@@ -155,7 +155,14 @@ def cmd_clone(args):
         print("\n--- Phase 3: Installing Extensions ---")
         to_install = resolver.get_extensions_to_install()
         if to_install:
-            install_extensions(to_install, extensions_dir, callback=print)
+            # Get MediaWiki version from siteinfo.yaml
+            siteinfo_path = os.path.join(data_dir, 'siteinfo.yaml')
+            mw_version = None
+            if os.path.exists(siteinfo_path):
+                with open(siteinfo_path, 'r') as f:
+                    siteinfo = yaml.safe_load(f) or {}
+                mw_version = siteinfo.get('mediawiki_version')
+            install_extensions(to_install, extensions_dir, mediawiki_version=mw_version, callback=print)
     else:
         print("No extensions found in export.")
     
@@ -359,7 +366,14 @@ def cmd_pull(args):
             print("\n--- Installing Extensions ---")
             to_install = resolver.get_extensions_to_install()
             if to_install:
-                install_extensions(to_install, extensions_dir, callback=print)
+                # Get MediaWiki version from siteinfo.yaml
+                siteinfo_path = os.path.join(wiki['path'], 'data', 'siteinfo.yaml')
+                mw_version = None
+                if os.path.exists(siteinfo_path):
+                    with open(siteinfo_path, 'r') as f:
+                        siteinfo = yaml.safe_load(f) or {}
+                    mw_version = siteinfo.get('mediawiki_version')
+                install_extensions(to_install, extensions_dir, mediawiki_version=mw_version, callback=print)
     
     # --- Pull data ---
     summary = engine.pull()

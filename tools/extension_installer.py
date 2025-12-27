@@ -7,19 +7,33 @@ from typing import List, Tuple
 
 PORTABLE_WIKI_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'portable_wiki')
 
-def install_extensions(extensions: List[Tuple[str, str]], output_dir: str, callback=None):
+def install_extensions(extensions: List[Tuple[str, str]], output_dir: str, mediawiki_version: str = None, callback=None):
     """
     Install extensions to output directory using Docker.
     
     Args:
         extensions: List of (name, source) tuples
         output_dir: Directory to install extensions to
+        mediawiki_version: MediaWiki version string (e.g., "1.39.0") for branch selection
         callback: Optional status callback
     """
     os.makedirs(output_dir, exist_ok=True)
     
     if callback:
         callback(f"Installing {len(extensions)} extensions...")
+    
+    # Build branch priority list based on version
+    branches = []
+    if mediawiki_version:
+        # Extract major.minor (e.g., "1.39" from "1.39.0")
+        parts = mediawiki_version.split('.')
+        if len(parts) >= 2:
+            major_minor = f"{parts[0]}_{parts[1]}"
+            branches.append(f"REL{major_minor}")
+    # Fallback branches
+    branches.extend(['REL1_45', 'REL1_44', 'REL1_43', 'REL1_39', 'master'])
+    # Remove duplicates while preserving order
+    branches = list(dict.fromkeys(branches))
     
     for name, source in extensions:
         if source == 'skip':
@@ -38,7 +52,7 @@ def install_extensions(extensions: List[Tuple[str, str]], output_dir: str, callb
         
         # Try Gerrit branches
         if source == 'gerrit':
-            for branch in ['REL1_45', 'REL1_44', 'REL1_43', 'master']:
+            for branch in branches:
                 result = subprocess.run([
                     'docker', 'run', '--rm',
                     '-v', f'{output_dir}:/out',
@@ -51,7 +65,7 @@ def install_extensions(extensions: List[Tuple[str, str]], output_dir: str, callb
                 if result.returncode == 0:
                     success = True
                     if callback:
-                        callback(f"  ✓ {name}")
+                        callback(f"  ✓ {name} ({branch})")
                     break
         
         if not success:

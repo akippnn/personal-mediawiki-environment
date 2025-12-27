@@ -75,6 +75,43 @@ class MediaWikiExporter:
     def report(self): return self.state.get_report()
     def request_stop(self): self.log("Stop requested..."); self._stop_event.set()
 
+    def _save_siteinfo(self):
+        """Query and save site info including MediaWiki version."""
+        self.log("Querying site info...")
+        params = {
+            'action': 'query',
+            'meta': 'siteinfo',
+            'siprop': 'general|extensions'
+        }
+        data = self.api.request(params, self._stop_event)
+        if not data:
+            self.log("Could not get site info")
+            return
+        
+        general = data.get('query', {}).get('general', {})
+        extensions = data.get('query', {}).get('extensions', [])
+        
+        # Parse version from generator string (e.g., "MediaWiki 1.39.0")
+        generator = general.get('generator', '')
+        version = None
+        if generator.startswith('MediaWiki '):
+            version = generator.replace('MediaWiki ', '')
+        
+        siteinfo = {
+            'sitename': general.get('sitename'),
+            'generator': generator,
+            'mediawiki_version': version,
+            'extensions': [ext.get('name') for ext in extensions if ext.get('name')]
+        }
+        
+        # Save siteinfo.yaml
+        siteinfo_path = os.path.join(self.state.output_dir, 'siteinfo.yaml')
+        with open(siteinfo_path, 'w') as f:
+            yaml.dump(siteinfo, f)
+        
+        self.log(f"Detected MediaWiki version: {version}")
+        self.log(f"Found {len(siteinfo['extensions'])} extensions")
+
     def run(self, root_category: str = None, scope: str = 'category', export_format: str = 'markdown', skip_media: bool = False):
         """
         Runs the export process.
@@ -83,6 +120,9 @@ class MediaWikiExporter:
         skip_media: If True, skip downloading images (for fetch mode)
         """
         self.log(f"Starting export with scope={scope}, format={export_format}, skip_media={skip_media}")
+        
+        # Query and save site info (including MediaWiki version)
+        self._save_siteinfo()
         
         # 1. Discover Pages
         all_pages = set()
