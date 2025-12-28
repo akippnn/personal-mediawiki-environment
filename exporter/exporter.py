@@ -112,14 +112,16 @@ class MediaWikiExporter:
         self.log(f"Detected MediaWiki version: {version}")
         self.log(f"Found {len(siteinfo['extensions'])} extensions")
 
-    def run(self, root_category: str = None, scope: str = 'category', export_format: str = 'markdown', skip_media: bool = False):
+    def run(self, root_category: str = None, scope: str = 'category', export_format: str = 'markdown', skip_media: bool = False, with_history: bool = False):
         """
         Runs the export process.
         scope: 'category' (default) or 'all'
         export_format: 'markdown' (default) or 'xml'
         skip_media: If True, skip downloading images (for fetch mode)
+        with_history: If True, include full revision history in XML export
         """
-        self.log(f"Starting export with scope={scope}, format={export_format}, skip_media={skip_media}")
+        self.log(f"Starting export with scope={scope}, format={export_format}, skip_media={skip_media}, with_history={with_history}")
+        self._with_history = with_history
         
         # Query and save site info (including MediaWiki version)
         self._save_siteinfo()
@@ -151,7 +153,7 @@ class MediaWikiExporter:
                  # Use the queue-based discovery for category, then export XML batches
                  self._run_category_discovery_and_xml_export(root_category)
             else:
-                self._batch_export_xml(list(all_pages))
+                self._batch_export_xml(list(all_pages), with_history=self._with_history)
             
             # Download images (skip if metadata-only fetch)
             if not skip_media:
@@ -316,10 +318,11 @@ class MediaWikiExporter:
         else:
             self.log("Could not fetch extensions info.")
 
-    def _batch_export_xml(self, titles: List[str]):
+    def _batch_export_xml(self, titles: List[str], with_history: bool = False):
         """
         Exports pages to XML format with efficient revision-based diffing.
         Skips pages that haven't changed since last export.
+        with_history: If True, include all revisions (much larger export)
         """
         # Step 1: Query revisions for all titles to determine what needs updating
         self.log(f"Checking {len(titles)} pages for changes...")
@@ -330,9 +333,11 @@ class MediaWikiExporter:
             return
         
         self.log(f"Found {len(titles_to_export)} pages with changes (skipped {len(titles) - len(titles_to_export)} unchanged).")
+        if with_history:
+            self.log("Including full revision history (this may be slow for large wikis)")
         
         # Step 2: Export only changed pages in chunks
-        chunk_size = 50
+        chunk_size = 50 if not with_history else 10  # Smaller batches for history
         for i in range(0, len(titles_to_export), chunk_size):
             if self._stop_event.is_set(): break
             batch = titles_to_export[i:i+chunk_size]
@@ -344,6 +349,8 @@ class MediaWikiExporter:
                 'exportnowrap': '1',
                 'titles': '|'.join(batch)
             }
+            if with_history:
+                params['exporthistory'] = '1'
             
             try:
                 resp = self.api.session.post(self.api.api_url, data=params, timeout=60)

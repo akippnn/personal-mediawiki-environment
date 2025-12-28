@@ -31,9 +31,9 @@ def slugify(name: str) -> str:
     """Create a filesystem-safe name."""
     return name.lower().replace(' ', '_').replace('/', '_').replace(':', '_')
 
-def run_exporter(api_url: str, output_dir: str, mode: str = 'all', skip_media: bool = False):
+def run_exporter(api_url: str, output_dir: str, mode: str = 'all', skip_media: bool = False, with_history: bool = False):
     """Run the exporter subprocess."""
-    print(f"Starting Exporter (scope={mode}, skip_media={skip_media})...")
+    print(f"Starting Exporter (scope={mode}, skip_media={skip_media}, with_history={with_history})...")
     cmd = [
         sys.executable, os.path.join(EXPORTER_DIR, 'main.py'),
         '--api-url', api_url,
@@ -44,6 +44,8 @@ def run_exporter(api_url: str, output_dir: str, mode: str = 'all', skip_media: b
     ]
     if skip_media:
         cmd.append('--skip-media')
+    if with_history:
+        cmd.append('--with-history')
     subprocess.run(cmd, check=True)
     print("Export completed successfully.")
 
