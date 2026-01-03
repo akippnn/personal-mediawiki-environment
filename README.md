@@ -1,6 +1,6 @@
 # Personal Mediawiki Environment
 
-> ⚠️ **Work in Progress** — Further testing needed: rate limits, remote and local sync, conflict resolution, push functionality, and other potential edge cases. Do not use in production.
+> ⚠️ **Work in Progress** — Further testing needed: rate limits, remote and local sync, conflict resolution, push functionality, and other potential edge cases. Do not use in production. See [ROADMAP.md](./docs/ROADMAP.md) for more details.
 
 This toolset allows you to create a local Mediawiki environment, clone a remote wiki, and manage it locally. It is currently in development and is not yet ready for production use.
 

@@ -39,9 +39,9 @@ flowchart TB
         LOCAL["localhost:8080"]
     end
     
-    subgraph Push["upload"]
-        GET["GET page content"]
-        POST["POST action=edit"]
+    subgraph Push["upload (local → remote)"]
+        GET["GET prop=revisions&rvprop=content<br/>→ page wikitext"]
+        POST["POST action=edit<br/>title + text + csrf token"]
     end
     
     API --> SI & AP & EX & AI
